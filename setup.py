@@ -1,148 +1,163 @@
 #!/usr/bin/env python
 # coding: utf-8
 
+# Copyright
+ Cloud Linux GmbH & Cloud Linux Software, Inc 2010-2019 All Rights Reserved
+# Licensed under CLOUD LINUX LICENSE AGREEMENT
+# http://cloudlinux.com/docs/LICENSE.TXT
 from __future__ import print_function
-
-import os.path
-import warnings
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import unicode_literals
+from future import standard_library
+standard_library.install_aliases()
+from builtins import *
+import json
+import os
 import sys
-
-try:
-    from setuptools import setup, Command
-    setuptools_available = True
-except ImportError:
-    from distutils.core import setup, Command
-    setuptools_available = False
-from distutils.spawn import spawn
-
-try:
-    # This will create an exe that needs Microsoft Visual C++ 2008
-    # Redistributable Package
-    import py2exe
-except ImportError:
-    if len(sys.argv) >= 2 and sys.argv[1] == 'py2exe':
-        print('Cannot import py2exe', file=sys.stderr)
-        exit(1)
-
-py2exe_options = {
-    'bundle_files': 1,
-    'compressed': 1,
-    'optimize': 2,
-    'dist_dir': '.',
-    'dll_excludes': ['w9xpopen.exe', 'crypt32.dll'],
-}
-
-# Get the version from youtube_dl/version.py without importing the package
-exec(compile(open('youtube_dl/version.py').read(),
-             'youtube_dl/version.py', 'exec'))
-
-DESCRIPTION = 'YouTube video downloader'
-LONG_DESCRIPTION = 'Command-line program to download videos from YouTube.com and other video sites'
-
-py2exe_console = [{
-    'script': './youtube_dl/__main__.py',
-    'dest_base': 'youtube-dl',
-    'version': __version__,
-    'description': DESCRIPTION,
-    'comments': LONG_DESCRIPTION,
-    'product_name': 'youtube-dl',
-    'product_version': __version__,
-}]
-
-py2exe_params = {
-    'console': py2exe_console,
-    'options': {'py2exe': py2exe_options},
-    'zipfile': None
-}
-
-if len(sys.argv) >= 2 and sys.argv[1] == 'py2exe':
-    params = py2exe_params
-else:
-    files_spec = [
-        ('etc/bash_completion.d', ['youtube-dl.bash-completion']),
-        ('etc/fish/completions', ['youtube-dl.fish']),
-        ('share/doc/youtube_dl', ['README.txt']),
-        ('share/man/man1', ['youtube-dl.1'])
-    ]
-    root = os.path.dirname(os.path.abspath(__file__))
-    data_files = []
-    for dirname, files in files_spec:
-        resfiles = []
-        for fn in files:
-            if not os.path.exists(fn):
-                warnings.warn('Skipping file %s since it is not present. Type  make  to build all automatically generated files.' % fn)
-            else:
-                resfiles.append(fn)
-        data_files.append((dirname, resfiles))
-
-    params = {
-        'data_files': data_files,
-    }
-    if setuptools_available:
-        params['entry_points'] = {'console_scripts': ['youtube-dl = youtube_dl:main']}
-    else:
-        params['scripts'] = ['bin/youtube-dl']
-
-class build_lazy_extractors(Command):
-    description = 'Build the extractor lazy loading module'
-    user_options = []
-
-    def initialize_options(self):
-        pass
-
-    def finalize_options(self):
-        pass
-
-    def run(self):
-        spawn(
-            [sys.executable, 'devscripts/make_lazy_extractors.py', 'youtube_dl/extractor/lazy_extractors.py'],
-            dry_run=self.dry_run,
-        )
-
-setup(
-    name='youtube_dl',
-    version=__version__,
-    description=DESCRIPTION,
-    long_description=LONG_DESCRIPTION,
-    url='https://github.com/ytdl-org/youtube-dl',
-    author='Ricardo Garcia',
-    author_email='ytdl@yt-dl.org',
-    maintainer='Sergey M.',
-    maintainer_email='dstftw@gmail.com',
-    license='Unlicense',
-    packages=[
-        'youtube_dl',
-        'youtube_dl.extractor', 'youtube_dl.downloader',
-        'youtube_dl.postprocessor'],
-
-    # Provokes warning on most systems (why?!)
-    # test_suite = 'nose.collector',
-    # test_requires = ['nosetest'],
-
-    classifiers=[
-        'Topic :: Multimedia :: Video',
-        'Development Status :: 5 - Production/Stable',
-        'Environment :: Console',
-        'License :: Public Domain',
-        'Programming Language :: Python',
-        'Programming Language :: Python :: 2',
-        'Programming Language :: Python :: 2.6',
-        'Programming Language :: Python :: 2.7',
-        'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.2',
-        'Programming Language :: Python :: 3.3',
-        'Programming Language :: Python :: 3.4',
-        'Programming Language :: Python :: 3.5',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
-        'Programming Language :: Python :: Implementation',
-        'Programming Language :: Python :: Implementation :: CPython',
-        'Programming Language :: Python :: Implementation :: IronPython',
-        'Programming Language :: Python :: Implementation :: Jython',
-        'Programming Language :: Python :: Implementation :: PyPy',
-    ],
-
-    cmdclass={'build_lazy_extractors': build_lazy_extractors},
-    **params
-)
+import syslog
+from future.utils import native_str
+CONFIGS_DIR = '/etc/cagefs/filters'
+LOG_AUTHPRIV = 10<<3
+def dmesg(debug, msg, *args):
+    if debug:
+        print(msg % args)
+def load_config(command_path):
+    """
+    Load JSON config by command name
+    """
+    try:
+        name = os.path.basename(command_path)
+        f = open(os.path.join(CONFIGS_DIR, "%s.json" % name), "r")
+        full_config = json.load(f)
+        f.close()
+    except Exception:
+        return None
+    if len(full_config) == 1 and ("allow" in full_config or
+                                  "deny" in full_config or
+                                  "restrict_path" in full_config):
+        # get full config if only `allow` or `deny` or `restrict_path` key present in it
+        return full_config
+    # find config for command path or get default
+    return full_config.get(command_path, full_config.get("default", None))
+def is_option_name(arg):
+    """
+    Return True if arg is option name, not parameter of an option
+    :param arg: option or parameter
+    :type arg: string
+    """
+    return arg.startswith('-')
+def has_denied_params(args, deny_list):
+    """
+    Check denied params in args list
+    """
+    for arg in args:
+        for opt in deny_list:
+            if arg.startswith(opt):
+                return True
+    return False
+def has_extra_params(args, allow_list):
+    """
+    Check is all args allow for program
+    """
+    for arg in args:
+        if is_option_name(arg) and (arg not in allow_list):
+            return True
+    return False
+def to_log(message, *args):
+    """
+    Wrapper for syslog or other logging system
+    """
+    syslog.openlog(native_str("cagefs.check_params"))
+    syslog.syslog(LOG_AUTHPRIV | syslog.LOG_PID, message % args)
+    syslog.closelog()
+def addslash(path):
+    if path == '':
+        return '/'
+    if (path[-1] != '/'):
+        return '%s/' % (path,)
+    return path
+def expanduser(path, user, home_dir):
+    home_dir = addslash(os.path.realpath(home_dir))
+    userpath = '~'+user
+    if path == '~' or path.startswith('~/'):
+        return os.path.realpath(path.replace('~', home_dir))
+    if path == userpath or path.startswith(userpath+'/'):
+        return os.path.realpath(path.replace(userpath, home_dir))
+    return os.path.realpath(path)
+def check_path(user, homedir, command_path, args, restrict_path_list, debug = False):
+    """
+    Return True when args contain paths that refer outside of user's home directory
+    :param args: parameters (options) from command line
+    :type args: list of strings
+    :param restrict_path_list: names of parameters (options) that should use paths inside user's home directory only
+    :type restrict_path_list: list of strings
+    """
+    home_dir = addslash(os.path.realpath(homedir))
+    for i, arg in enumerate(args):
+        if arg in restrict_path_list:
+            try:
+                # path is specified in the next argument
+                path = args[i+1]
+            except IndexError:
+                continue
+            path = expanduser(path, user, home_dir)
+            path = addslash(path)
+            if not path.startswith(home_dir):
+                dmesg(debug, "Attempt to call program %s with %s %s parameters", command_path, args[i], args[i+1])
+                to_log("Attempt to call program %s with %s %s parameters", command_path, args[i], args[i+1])
+                return True
+        else:
+            for opt in restrict_path_list:
+                if arg.startswith(opt):
+                    # path is specified in the current argument
+                    path = arg[len(opt):]
+                    path = expanduser(path, user, home_dir)
+                    path = addslash(path)
+                    if not path.startswith(home_dir):
+                        dmesg(debug, "Attempt to call program %s with %s parameter", command_path, args[i])
+                        to_log("Attempt to call program %s with %s parameter", command_path, args[i])
+                        return True
+    return False
+def main(user, homedir, params, debug = False):
+    """
+    Program main function
+    :params - list of strings that specify command and its parameters, such as ['/path/command', '-a', 'arg', '-C', '/path/to/config']
+    """
+    if len(params) == 0:
+        dmesg(debug, 'No parameters specified')
+        return 1
+    # permit execution of any command when called without parameters
+    if len(params) < 2:
+        dmesg(debug, 'Command has no parameters. Allow execution of command %s', params[0])
+        return 0
+    command_path = params[0]
+    args = params[1:]
+    config = load_config(command_path)
+    dmesg(debug, 'config: %s', str(config))
+    if not config:
+        dmesg(debug, 'Config not found. Allow execution of command %s', command_path)
+        return 0
+    allow_list = config.get("allow", None)
+    deny_list = config.get("deny", None)
+    restrict_path_list = config.get("restrict_path", None)
+    if not (allow_list or deny_list or restrict_path_list):
+        dmesg(debug, 'empty config - allow user to run the command')
+        return 0
+    if allow_list and deny_list:
+        dmesg(debug, 'invalid config - both allow and deny lists are specified. allow user to run the command')
+        return 0
+    if deny_list and has_denied_params(args, deny_list):
+        dmesg(debug, "Attempt to call program %s with denied parameters", command_path)
+        to_log("Attempt to call program %s with denied parameters", command_path)
+        return 2
+    if allow_list and has_extra_params(args, allow_list):
+        dmesg(debug, "Attempt to call program %s with extra parameters", command_path)
+        to_log("Attempt to call program %s with extra parameters", command_path)
+        return 2
+    if restrict_path_list and check_path(user, homedir, command_path, args, restrict_path_list, debug):
+        return 2
+    dmesg(debug, 'Execution allowed')
+    return 0
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1], sys.argv[2], sys.argv[3:]))
