@@ -1,5 +1,6 @@
-#!/opt/alt/python37/bin/python3.7 -bb
-# -*- coding: utf-8 -*-
+#!/usr/bin/env python
+# coding: utf-8
+
 # Copyright
  Cloud Linux GmbH & Cloud Linux Software, Inc 2010-2019 All Rights Reserved
 # Licensed under CLOUD LINUX LICENSE AGREEMENT
